@@ -78,7 +78,7 @@
       currentStep = 0;
       lastMoveCount = 1;
 
-      // ランダムに1つのデータ（3手分の手順配列）を選択
+      // ランダムに1つのデータを選択
       const selectedStage = kifuDatabase[Math.floor(Math.random() * kifuDatabase.length)];
       currentRoute = selectedStage;
 
@@ -90,14 +90,23 @@
       // 盤面表示用要素をクリア
       document.getElementById("board").innerHTML = "";
 
-      // 手順データを KIF 形式のテキストにして読み込ませる
-      const kifContent = convertToKifString(currentRoute);
+      // SFEN形式または通常の手順文字列かチェックしてロード
+      let loadData = "";
+      if (typeof currentRoute === "string") {
+        loadData = currentRoute;
+      } else if (Array.isArray(currentRoute)) {
+        // 配列の場合はSFEN/CSA等のデータ構造に合わせて調整
+        loadData = currentRoute.join("\n");
+      } else if (typeof currentRoute === "object" && currentRoute.sfen) {
+        loadData = currentRoute.sfen;
+      }
 
-      KifuForJS.loadString(kifContent, "board").then(function(player) {
+      // KifuForJS にデータをロード
+      KifuForJS.loadString(loadData, "board").then(function(player) {
         console.log("KifuForJS の読み込み成功");
         kifuPlayer = player;
 
-        // 自由入力（盤面操作）を許可
+        // 自由入力を許可
         if (player.setFreeMode) player.setFreeMode(true);
 
         // 手が指された時のイベント検知
