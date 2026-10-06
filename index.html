@@ -36,20 +36,8 @@
     let lastMoveCount = 1;
     let clearStreak = 0;
 
-    // 平手初期盤面のCSAデータ
-    const INITIAL_CSA_BOARD = [
-      "V2.1",
-      "P1-KY-KE-GI-KI-OU-KI-GI-KE-KY",
-      "P2 * -HI * * * * * -KA *",
-      "P3-FU-FU-FU-FU-FU-FU-FU-FU-FU",
-      "P4 * * * * * * * * *",
-      "P5 * * * * * * * * *",
-      "P6 * * * * * * * * *",
-      "P7+FU+FU+FU+FU+FU+FU+FU+FU+FU",
-      "P8 * +KA * * * * * +HI *",
-      "P9+KY+KE+GI+KI+OU+KI+GI+KE+KY",
-      "+"
-    ].join("\n");
+    // KifuForJSが確実に認識する最小の標準KIF初期化テキスト
+    const INITIAL_KIF_BOARD = "手合割：平手\n";
 
     const PIECE_MAP = {
       "FU": "歩", "KY": "香", "KE": "桂", "GI": "銀", "KI": "金",
@@ -100,11 +88,10 @@
       let rawStage = kifuDatabase[Math.floor(Math.random() * kifuDatabase.length)];
       if (!Array.isArray(rawStage)) rawStage = [rawStage];
 
-      // "+" や "-" の単体記号を取り除き、4文字以上の指し手データ（+7776FUなど）のみ抽出
+      // "+" や "-" などの単体記号を除外した有効な指し手のみを抽出
       currentRoute = rawStage.filter(m => typeof m === "string" && m.trim() !== "+" && m.trim() !== "-" && m.trim().length >= 4);
 
       if (currentRoute.length === 0) {
-        // 万が一空の場合は別の問題を引く
         next3MoveStage();
         return;
       }
@@ -116,8 +103,8 @@
 
       document.getElementById("board").innerHTML = "";
 
-      // 初期配置データのみをロード
-      KifuForJS.loadString(INITIAL_CSA_BOARD, "board").then(function(player) {
+      // KIF形式で平手初期盤面をロード
+      KifuForJS.loadString(INITIAL_KIF_BOARD, "board").then(function(player) {
         console.log("KifuForJS の読み込み成功");
         kifuPlayer = player;
 
@@ -168,7 +155,7 @@
 
       console.log("指した手:", playedCsa, `(${playedMoveStr})`, "正解:", expectedMove);
 
-      // 正解判定（CSA形式の比較、または漢字表記が含まれているか）
+      // 正解判定
       if (expectedMove && (playedCsa === expectedMove || playedMoveStr.includes(expectedMove))) {
         // ---【正解】---
         currentStep++;
