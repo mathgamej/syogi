@@ -6,7 +6,7 @@
   <script src="https://cdn.jsdelivr.net/npm/kifu-for-js@3/bundle/kifu-for-js.min.js"></script>
   <style>
     body { font-family: sans-serif; text-align: center; background-color: #111; color: #fff; margin: 0; padding: 20px; }
-    #board { display: inline-block; margin-top: 15px; }
+    #board-container { display: flex; justify-content: center; margin-top: 15px; min-height: 400px; }
     #status { font-size: 1.3rem; font-weight: bold; margin: 15px 0; min-height: 1.5em; }
     .died { color: #ff4444; font-size: 2rem; }
     .safe { color: #44ff44; }
@@ -22,7 +22,9 @@
   
   <div id="status">データ読み込み中...</div>
   
-  <div id="board"></div>
+  <div id="board-container">
+    <div id="board"></div>
+  </div>
 
   <div class="controls">
     <button onclick="skipStage()">スキップ（次の3手へ）</button>
@@ -36,26 +38,42 @@
     let lastMoveCount = 1;
     let clearStreak = 0;
 
-    // KifuForJSが確実に認識する最小の標準KIF初期化テキスト
-    const INITIAL_KIF_BOARD = "手合割：平手\n";
-
     const PIECE_MAP = {
       "FU": "歩", "KY": "香", "KE": "桂", "GI": "銀", "KI": "金",
       "KA": "角", "HI": "飛", "OU": "玉", "TO": "と", "NY": "成香",
       "NK": "成桂", "NG": "成銀", "UM": "馬", "RY": "龍"
     };
 
-    // CSA表記 (+7776FU) を日本語 (76歩) に変換
+    // CSA表記 (+7776FU) を日本語 (▲76歩) に変換
     function formatCsaToJapanese(csaStr) {
       if (!csaStr || csaStr.length < 7) return csaStr || "";
+      const mark = csaStr.startsWith("+") ? "▲" : "△";
       const toX = csaStr.substring(3, 4);
       const toY = csaStr.substring(4, 5);
       const pieceCode = csaStr.substring(5, 7);
       const pieceName = PIECE_MAP[pieceCode] || pieceCode;
-      return `${toX}${toY}${pieceName}`;
+      return `${mark}${toX}${toY}${pieceName}`;
     }
 
-    // 1. stages.json を読み込む処理
+    // CSAフォーマットのフルテキストを生成
+    function buildCsaContent(moves) {
+      const header = [
+        "V2.1",
+        "P1-KY-KE-GI-KI-OU-KI-GI-KE-KY",
+        "P2 * -HI * * * * * -KA *",
+        "P3-FU-FU-FU-FU-FU-FU-FU-FU-FU",
+        "P4 * * * * * * * * *",
+        "P5 * * * * * * * * *",
+        "P6 * * * * * * * * *",
+        "P7+FU+FU+FU+FU+FU+FU+FU+FU+FU",
+        "P8 * +KA * * * * * +HI *",
+        "P9+KY+KE+GI+KI+OU+KI+GI+KE+KY",
+        "+"
+      ];
+      return header.join("\n") + "\n" + moves.join("\n");
+    }
+
+    // 1. stages.json の読み込み
     async function loadStages() {
       try {
         console.log("stages.json の取得を開始します...");
@@ -84,12 +102,10 @@
       currentStep = 0;
       lastMoveCount = 1;
 
-      // ランダム選出
+      // 有効なCSA指し手（+7776FUなど 7文字）だけを抽出
       let rawStage = kifuDatabase[Math.floor(Math.random() * kifuDatabase.length)];
       if (!Array.isArray(rawStage)) rawStage = [rawStage];
-
-      // "+" や "-" などの単体記号を除外した有効な指し手のみを抽出
-      currentRoute = rawStage.filter(m => typeof m === "string" && m.trim() !== "+" && m.trim() !== "-" && m.trim().length >= 4);
+      currentRoute = rawStage.filter(m => typeof m === "string" && m.trim().length >= 7);
 
       if (currentRoute.length === 0) {
         next3MoveStage();
@@ -98,18 +114,29 @@
 
       console.log('今回の正解手順 (CSA):', currentRoute);
 
-      document.getElementById("stage-title").innerText = `3手ステージ`;
-      document.getElementById("status").innerHTML = "AIの3手を当てろ...！";
+      // ガイダンス更新
+      updateStatusGuide();
 
-      document.getElementById("board").innerHTML = "";
+      // DOM要素を安全に再作成（描画エラー防止）
+      const container = document.getElementById("board-container");
+      container.innerHTML = '<div id="board"></div>';
 
-      // KIF形式で平手初期盤面をロード
-      KifuForJS.loadString(INITIAL_KIF_BOARD, "board").then(function(player) {
+      // CSA形式で棋譜をロード
+      const csaData = buildCsaContent(currentRoute);
+
+      KifuForJS.loadString(csaData, "board").then(function(player) {
         console.log("KifuForJS の読み込み成功");
         kifuPlayer = player;
 
+        // 初期状態（0手目）に戻す
+        if (typeof player.goto === "function") {
+          player.goto(0);
+        }
+
+        // 自由移動を許可
         if (player.setFreeMode) player.setFreeMode(true);
 
+        // 着手イベントの監視
         if (typeof player.onChange === "function") {
           player.onChange(() => checkMove());
         } else if (player.store && typeof player.store.subscribe === "function") {
@@ -119,6 +146,12 @@
         console.error("KifuForJS エラー:", err);
         document.getElementById("status").innerText = "盤面ライブラリの読み込みに失敗しました";
       });
+    }
+
+    // 今何手目を指すかの表示更新
+    function updateStatusGuide() {
+      const turnMark = (currentStep % 2 === 0) ? "▲先手" : "△後手";
+      document.getElementById("status").innerHTML = `${currentStep + 1}/3手目 (${turnMark}) の手を指してください！`;
     }
 
     // 3. 指した手（オブジェクト）を CSA 形式（例: "+7776FU"）に変換する
@@ -148,14 +181,12 @@
       lastMoveCount = moves.length;
       const lastMove = moves[moves.length - 1];
 
-      // 指された手を CSA 形式文字列に変換
       const playedCsa = getCsaFromMove(lastMove);
       const playedMoveStr = lastMove && lastMove.move ? (lastMove.move.str || "") : "";
       const expectedMove = currentRoute[currentStep];
 
       console.log("指した手:", playedCsa, `(${playedMoveStr})`, "正解:", expectedMove);
 
-      // 正解判定
       if (expectedMove && (playedCsa === expectedMove || playedMoveStr.includes(expectedMove))) {
         // ---【正解】---
         currentStep++;
@@ -169,7 +200,7 @@
             next3MoveStage();
           }, 800);
         } else {
-          document.getElementById("status").innerHTML = `<span class='safe'>HIT ! (${currentStep}/${currentRoute.length} 手目クリア)</span>`;
+          updateStatusGuide();
         }
       } else {
         // ---【不正解（即死）】---
