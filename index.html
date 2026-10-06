@@ -30,11 +30,26 @@
 
   <script>
     let kifuDatabase = [];
-    let currentRoute = []; // 正解の手順配列（例: ["+2726FU", "-8384FU", "+2625FU"]）
+    let currentRoute = [];
     let currentStep = 0;
     let kifuPlayer = null;
     let lastMoveCount = 1;
     let clearStreak = 0;
+
+    // 平手初期盤面のCSAデータ（これだけを盤面表示に使用することで構文エラーを根絶）
+    const INITIAL_CSA_BOARD = [
+      "V2.1",
+      "P1-KY-KE-GI-KI-OU-KI-GI-KE-KY",
+      "P2 * -HI * * * * * -KA *",
+      "P3-FU-FU-FU-FU-FU-FU-FU-FU-FU",
+      "P4 * * * * * * * * *",
+      "P5 * * * * * * * * *",
+      "P6 * * * * * * * * *",
+      "P7+FU+FU+FU+FU+FU+FU+FU+FU+FU",
+      "P8 * +KA * * * * * +HI *",
+      "P9+KY+KE+GI+KI+OU+KI+GI+KE+KY",
+      "+"
+    ].join("\n");
 
     // 1. stages.json を読み込む処理
     async function loadStages() {
@@ -58,48 +73,26 @@
 
     window.addEventListener('load', loadStages);
 
-    // 2. CSA記法の配列から KifuForJS が読める正式な CSAテキストを生成する
-    function convertToCsaText(moves) {
-      const header = [
-        "V2.1",
-        "P1-KY-KE-GI-KI-OU-KI-GI-KE-KY",
-        "P2 * -HI * * * * * -KA *",
-        "P3-FU-FU-FU-FU-FU-FU-FU-FU-FU",
-        "P4 * * * * * * * * *",
-        "P5 * * * * * * * * *",
-        "P6 * * * * * * * * *",
-        "P7+FU+FU+FU+FU+FU+FU+FU+FU+FU",
-        "P8 * +KA * * * * * +HI *",
-        "P9+KY+KE+GI+KI+OU+KI+GI-KE-KY", // 平手初期配置
-        "+"
-      ];
-
-      // 純粋な指し手のみ抽出（単体の "+" などを除外）
-      const cleanMoves = moves.filter(m => m !== "+");
-      return header.join("\n") + "\n" + cleanMoves.join("\n");
-    }
-
-    // 3. 次の3手ステージへ進む処理
+    // 2. 次の3手ステージへ進む処理
     function next3MoveStage() {
       if (!kifuDatabase || kifuDatabase.length === 0) return;
 
       currentStep = 0;
       lastMoveCount = 1;
 
-      // ランダムに1つのデータを選択し、単体の "+" を除外して正解配列にする
+      // stages.json からランダム選出し、指し手文字列（例: "+7776FU"）のみ抽出
       const rawStage = kifuDatabase[Math.floor(Math.random() * kifuDatabase.length)];
-      currentRoute = rawStage.filter(m => m !== "+");
+      currentRoute = rawStage.filter(m => typeof m === "string" && m.length >= 6);
 
-      console.log('今回の出題手順:', currentRoute);
+      console.log('今回の正解手順:', currentRoute);
 
       document.getElementById("stage-title").innerText = `3手ステージ`;
       document.getElementById("status").innerHTML = "AIの3手を当てろ...！";
 
-      // 盤面クリア＆CSA形式でロード
       document.getElementById("board").innerHTML = "";
-      const csaText = convertToCsaText(currentRoute);
 
-      KifuForJS.loadString(csaText, "board").then(function(player) {
+      // 初期配置データのみをロード
+      KifuForJS.loadString(INITIAL_CSA_BOARD, "board").then(function(player) {
         console.log("KifuForJS の読み込み成功");
         kifuPlayer = player;
 
@@ -116,18 +109,20 @@
       });
     }
 
-    // 4. KifuForJS の指し手オブジェクトから CSA 文字列（例: "+2726FU"）に変換する
-    function getCsaFromMove(moveObj) {
-      if (!moveObj || !moveObj.move) return "";
-      const m = moveObj.move;
-      const color = moveObj.color === 0 ? "+" : "-";
+    // 3. 指した手（オブジェクト）を CSA 形式（例: "+7776FU"）に変換する
+    function getCsaFromMove(lastMove) {
+      if (!lastMove) return "";
+      const m = lastMove.move;
+      if (!m) return "";
+
+      const color = (lastMove.color === 0 || m.color === 0) ? "+" : "-";
       const fromStr = m.from ? `${m.from.x}${m.from.y}` : "00";
       const toStr = m.to ? `${m.to.x}${m.to.y}` : "00";
       const piece = m.piece || "";
       return `${color}${fromStr}${toStr}${piece}`;
     }
 
-    // 5. 手順判定処理
+    // 4. 手順判定処理
     function checkMove() {
       if (!kifuPlayer || !kifuPlayer.store) return;
 
@@ -141,14 +136,14 @@
       lastMoveCount = moves.length;
       const lastMove = moves[moves.length - 1];
 
-      // 指された手を CSA 記法に変換（例: "+2726FU"）
+      // 指された手を CSA 形式文字列に変換
       const playedCsa = getCsaFromMove(lastMove);
       const playedMoveStr = lastMove && lastMove.move ? (lastMove.move.str || "") : "";
       const expectedMove = currentRoute[currentStep];
 
       console.log("指した手:", playedCsa, `(${playedMoveStr})`, "正解:", expectedMove);
 
-      // 完全一致（または文字列包含）で正誤判定
+      // 正解判定
       if (expectedMove && (playedCsa === expectedMove || playedMoveStr.includes(expectedMove))) {
         // ---【正解】---
         currentStep++;
@@ -172,16 +167,7 @@
 
         setTimeout(() => {
           alert(`YOU DIED !!\n正解は「${expectedMove || 'なし'}」でした。\nリトライ！`);
-          currentStep = 0;
-          lastMoveCount = 1;
-          document.getElementById("status").innerHTML = "AIの3手を当てろ...！";
-          
-          // 初期化リトライ
-          if (kifuPlayer && typeof kifuPlayer.goto === "function") {
-            kifuPlayer.goto(0);
-          } else {
-            next3MoveStage();
-          }
+          next3MoveStage();
         }, 50);
       }
     }
