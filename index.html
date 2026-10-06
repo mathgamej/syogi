@@ -171,5 +171,1169 @@
 <div id="info">
     AIと同じ手を指せ！<br>
     <span class="sub">1手でも違ったらゲームオーバー。2手正解で次の問題。</span>
-</di
+</div>
+
+<div id="game">
+    <div id="board-area">
+        <div id="board"></div>
+    </div>
+
+    <div id="score">
+        スコア：<span id="streak">0</span>
+    </div>
+
+    <div id="message"></div>
+
+    <div id="buttons">
+        <button id="nextButton">次の問題</button>
+        <button id="resetButton">最初から</button>
+    </div>
+</div>
+
+<script>
+
+/* =========================================================
+   基本設定
+========================================================= */
+
+const boardElement = document.getElementById("board");
+const statusElement = document.getElementById("status");
+const streakElement = document.getElementById("streak");
+const messageElement = document.getElementById("message");
+const nextButton = document.getElementById("nextButton");
+const resetButton = document.getElementById("resetButton");
+
+let stages = [];
+let validStages = [];
+
+let currentStage = null;
+let currentStep = 0;
+
+let streak = 0;
+
+let board = [];
+let selected = null;
+let lastMove = null;
+
+
+/* =========================================================
+   駒
+=========================================================
+
+   文字：
+   FU = 歩
+   KY = 香
+   KE = 桂
+   GI = 銀
+   KI = 金
+   KA = 角
+   HI = 飛
+   OU = 王
+
+========================================================= */
+
+const PIECES = {
+    FU: "歩",
+    KY: "香",
+    KE: "桂",
+    GI: "銀",
+    KI: "金",
+    KA: "角",
+    HI: "飛",
+    OU: "王",
+
+    TO: "と",
+    NY: "杏",
+    NK: "圭",
+    NG: "全",
+    UM: "馬",
+    RY: "龍"
+};
+
+
+/* =========================================================
+   初期盤面
+========================================================= */
+
+function createInitialBoard() {
+
+    const b = Array.from(
+        { length: 9 },
+        () => Array(9).fill(null)
+    );
+
+    // 後手
+    b[0] = [
+        { side: "-", piece: "KY" },
+        { side: "-", piece: "KE" },
+        { side: "-", piece: "GI" },
+        { side: "-", piece: "KI" },
+        { side: "-", piece: "OU" },
+        { side: "-", piece: "KI" },
+        { side: "-", piece: "GI" },
+        { side: "-", piece: "KE" },
+        { side: "-", piece: "KY" }
+    ];
+
+    b[1][1] = { side: "-", piece: "HI" };
+    b[1][7] = { side: "-", piece: "KA" };
+
+    // 後手歩
+    for (let x = 0; x < 9; x++) {
+        b[2][x] = { side: "-", piece: "FU" };
+    }
+
+    // 先手歩
+    for (let x = 0; x < 9; x++) {
+        b[6][x] = { side: "+", piece: "FU" };
+    }
+
+    // 先手飛角
+    b[7][1] = { side: "+", piece: "KA" };
+    b[7][7] = { side: "+", piece: "HI" };
+
+    // 先手
+    b[8] = [
+        { side: "+", piece: "KY" },
+        { side: "+", piece: "KE" },
+        { side: "+", piece: "GI" },
+        { side: "+", piece: "KI" },
+        { side: "+", piece: "OU" },
+        { side: "+", piece: "KI" },
+        { side: "+", piece: "GI" },
+        { side: "+", piece: "KE" },
+        { side: "+", piece: "KY" }
+    ];
+
+    return b;
+}
+
+
+/* =========================================================
+   CSA座標 → 配列座標
+========================================================= */
+
+function csaToXY(square) {
+
+    const file = Number(square[0]);
+    const rank = Number(square[1]);
+
+    return {
+        x: 9 - file,
+        y: rank - 1
+    };
+}
+
+
+/* =========================================================
+   配列座標 → CSA座標
+========================================================= */
+
+function xyToCSA(x, y) {
+
+    const file = 9 - x;
+    const rank = y + 1;
+
+    return String(file) + String(rank);
+}
+
+
+/* =========================================================
+   盤面描画
+========================================================= */
+
+function renderBoard() {
+
+    boardElement.innerHTML = "";
+
+    for (let y = 0; y < 9; y++) {
+
+        for (let x = 0; x < 9; x++) {
+
+            const cell = document.createElement("div");
+            cell.className = "cell";
+
+            if (
+                selected &&
+                selected.x === x &&
+                selected.y === y
+            ) {
+                cell.classList.add("selected");
+            }
+
+            if (lastMove) {
+
+                if (
+                    lastMove.from.x === x &&
+                    lastMove.from.y === y
+                ) {
+                    cell.classList.add("last");
+                }
+
+                if (
+                    lastMove.to.x === x &&
+                    lastMove.to.y === y
+                ) {
+                    cell.classList.add("last");
+                }
+            }
+
+            const piece = board[y][x];
+
+            if (piece) {
+
+                const pieceElement =
+                    document.createElement("div");
+
+                pieceElement.className = "piece";
+
+                if (piece.side === "-") {
+                    pieceElement.classList.add("gote");
+                }
+
+                if (isPromoted(piece.piece)) {
+                    pieceElement.classList.add("promoted");
+                }
+
+                pieceElement.textContent =
+                    PIECES[piece.piece];
+
+                cell.appendChild(pieceElement);
+            }
+
+            cell.addEventListener(
+                "click",
+                () => clickCell(x, y)
+            );
+
+            boardElement.appendChild(cell);
+        }
+    }
+}
+
+
+/* =========================================================
+   駒が成っているか
+========================================================= */
+
+function isPromoted(piece) {
+
+    return [
+        "TO",
+        "NY",
+        "NK",
+        "NG",
+        "UM",
+        "RY"
+    ].includes(piece);
+}
+
+
+/* =========================================================
+   成り駒 → 元の駒
+========================================================= */
+
+function basePiece(piece) {
+
+    const map = {
+        TO: "FU",
+        NY: "KY",
+        NK: "KE",
+        NG: "GI",
+        UM: "KA",
+        RY: "HI"
+    };
+
+    return map[piece] || piece;
+}
+
+
+/* =========================================================
+   CSAの駒名を取得
+========================================================= */
+
+function pieceToCSA(piece) {
+
+    return piece.piece;
+}
+
+
+/* =========================================================
+   駒をクリック
+========================================================= */
+
+function clickCell(x, y) {
+
+    if (!currentStage) {
+        return;
+    }
+
+    const piece = board[y][x];
+
+    // 何も選択していない
+    if (!selected) {
+
+        if (!piece) {
+            return;
+        }
+
+        // 現在指すべき側
+        const expectedMove =
+            currentStage[currentStep];
+
+        if (!expectedMove) {
+            return;
+        }
+
+        const expectedSide =
+            expectedMove[0];
+
+        if (piece.side !== expectedSide) {
+            return;
+        }
+
+        selected = { x, y };
+
+        renderBoard();
+
+        return;
+    }
+
+
+    // 同じマスをクリックしたら選択解除
+    if (
+        selected.x === x &&
+        selected.y === y
+    ) {
+
+        selected = null;
+        renderBoard();
+
+        return;
+    }
+
+
+    // 別の自分の駒をクリック
+    if (
+        piece &&
+        piece.side === board[selected.y][selected.x].side
+    ) {
+
+        selected = { x, y };
+
+        renderBoard();
+
+        return;
+    }
+
+
+    const from = {
+        x: selected.x,
+        y: selected.y
+    };
+
+    const to = {
+        x,
+        y
+    };
+
+    tryMove(from, to);
+}
+
+
+/* =========================================================
+   指し手を実行
+========================================================= */
+
+function tryMove(from, to) {
+
+    const movingPiece = board[from.y][from.x];
+
+    if (!movingPiece) {
+        selected = null;
+        renderBoard();
+        return;
+    }
+
+    // 本当に動ける手かチェック
+    if (!isLegalMove(from, to, movingPiece.side)) {
+
+        messageElement.textContent =
+            "そこには動けません。";
+
+        messageElement.className = "bad";
+
+        selected = null;
+
+        renderBoard();
+
+        return;
+    }
+
+
+    const csaMove =
+        makeCSAMove(from, to, movingPiece);
+
+
+    const expectedMove =
+        currentStage[currentStep];
+
+
+    selected = null;
+
+
+    // 正解
+    if (csaMove === expectedMove) {
+
+        makeMoveOnBoard(from, to);
+
+        lastMove = {
+            from,
+            to
+        };
+
+        currentStep++;
+
+        messageElement.textContent =
+            "正解！";
+
+        messageElement.className = "good";
+
+
+        // 2手とも正解
+        if (
+            currentStep >= currentStage.length
+        ) {
+
+            streak++;
+
+            streakElement.textContent =
+                streak;
+
+            statusElement.textContent =
+                "🎉 2手正解！次の問題へ";
+
+            setTimeout(() => {
+                nextStage();
+            }, 700);
+
+        } else {
+
+            statusElement.textContent =
+                "正解！次のAIの手を当てろ！";
+        }
+
+    }
+
+    // 不正解
+    else {
+
+        streak = 0;
+
+        streakElement.textContent = "0";
+
+        messageElement.textContent =
+            "GAME OVER！ 正解は " +
+            expectedMove;
+
+        messageElement.className = "bad";
+
+        statusElement.textContent =
+            "❌ 不正解！盤面をリセットします";
+
+        setTimeout(() => {
+            startStage();
+        }, 1000);
+    }
+
+
+    renderBoard();
+}
+
+
+/* =========================================================
+   盤面に実際に指す
+========================================================= */
+
+function makeMoveOnBoard(from, to) {
+
+    const piece =
+        board[from.y][from.x];
+
+    const promote =
+        shouldAutoPromote(piece, to);
+
+    const newPiece = {
+        side: piece.side,
+        piece: promote
+            ? promotePiece(piece.piece)
+            : piece.piece
+    };
+
+    board[to.y][to.x] = newPiece;
+    board[from.y][from.x] = null;
+}
+
+
+/* =========================================================
+   自動成り
+=========================================================
+
+   このゲームでは、stages.json側に成り指定が
+   入っている場合も考慮する。
+
+========================================================= */
+
+function promotePiece(piece) {
+
+    const map = {
+        FU: "TO",
+        KY: "NY",
+        KE: "NK",
+        GI: "NG",
+        KA: "UM",
+        HI: "RY"
+    };
+
+    return map[piece] || piece;
+}
+
+
+function shouldAutoPromote(piece, to) {
+
+    // この簡易版では、
+    // 成りはCSAの期待手側から必要になった時に処理する。
+    return false;
+}
+
+
+/* =========================================================
+   CSA形式の指し手を作る
+========================================================= */
+
+function makeCSAMove(from, to, piece) {
+
+    return (
+        piece.side +
+        xyToCSA(from.x, from.y) +
+        xyToCSA(to.x, to.y) +
+        pieceToCSA(piece)
+    );
+}
+
+
+/* =========================================================
+   合法手チェック
+========================================================= */
+
+function isLegalMove(from, to, side) {
+
+    if (
+        from.x === to.x &&
+        from.y === to.y
+    ) {
+        return false;
+    }
+
+    const piece = board[from.y][from.x];
+
+    if (!piece || piece.side !== side) {
+        return false;
+    }
+
+    const target = board[to.y][to.x];
+
+    // 自分の駒には行けない
+    if (
+        target &&
+        target.side === side
+    ) {
+        return false;
+    }
+
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+
+    const dir = side === "+" ? -1 : 1;
+
+    const p = piece.piece;
+
+
+    // 歩
+    if (p === "FU") {
+
+        return dx === 0 && dy === dir;
+    }
+
+
+    // と
+    if (p === "TO") {
+
+        return goldMove(dx, dy, dir);
+    }
+
+
+    // 香
+    if (p === "KY") {
+
+        if (dx !== 0) {
+            return false;
+        }
+
+        if (
+            (side === "+" && dy >= 0) ||
+            (side === "-" && dy <= 0)
+        ) {
+            return false;
+        }
+
+        return clearStraight(from, to);
+    }
+
+
+    // 成香
+    if (p === "NY") {
+        return goldMove(dx, dy, dir);
+    }
+
+
+    // 桂
+    if (p === "KE") {
+
+        return (
+            dx !== 0 &&
+            Math.abs(dx) === 1 &&
+            dy === dir * 2
+        );
+    }
+
+
+    // 成桂
+    if (p === "NK") {
+        return goldMove(dx, dy, dir);
+    }
+
+
+    // 銀
+    if (p === "GI") {
+
+        return (
+            Math.abs(dx) <= 1 &&
+            Math.abs(dy) <= 1 &&
+            !(dx === 0 && dy === 0) &&
+            !(
+                dy === -dir &&
+                dx !== 0
+            )
+        );
+    }
+
+
+    // 成銀
+    if (p === "NG") {
+        return goldMove(dx, dy, dir);
+    }
+
+
+    // 金
+    if (p === "KI") {
+        return goldMove(dx, dy, dir);
+    }
+
+
+    // 王
+    if (p === "OU") {
+
+        return (
+            Math.abs(dx) <= 1 &&
+            Math.abs(dy) <= 1
+        );
+    }
+
+
+    // 角
+    if (p === "KA") {
+
+        if (
+            Math.abs(dx) !==
+            Math.abs(dy)
+        ) {
+            return false;
+        }
+
+        return clearDiagonal(from, to);
+    }
+
+
+    // 馬
+    if (p === "UM") {
+
+        if (
+            Math.abs(dx) ===
+            Math.abs(dy)
+        ) {
+            return clearDiagonal(from, to);
+        }
+
+        return (
+            Math.abs(dx) +
+            Math.abs(dy) === 1
+        );
+    }
+
+
+    // 飛
+    if (p === "HI") {
+
+        if (
+            dx !== 0 &&
+            dy !== 0
+        ) {
+            return false;
+        }
+
+        return clearStraight(from, to);
+    }
+
+
+    // 龍
+    if (p === "RY") {
+
+        if (
+            dx === 0 ||
+            dy === 0
+        ) {
+            return clearStraight(from, to);
+        }
+
+        return (
+            Math.abs(dx) +
+            Math.abs(dy) === 2
+        );
+    }
+
+
+    return false;
+}
+
+
+/* =========================================================
+   金の動き
+========================================================= */
+
+function goldMove(dx, dy, dir) {
+
+    return (
+        (dy === dir && Math.abs(dx) <= 1) ||
+        (dy === 0 && Math.abs(dx) === 1) ||
+        (dy === -dir && dx === 0)
+    );
+}
+
+
+/* =========================================================
+   直線の途中に駒がないか
+========================================================= */
+
+function clearStraight(from, to) {
+
+    const stepX =
+        Math.sign(to.x - from.x);
+
+    const stepY =
+        Math.sign(to.y - from.y);
+
+    let x = from.x + stepX;
+    let y = from.y + stepY;
+
+    while (
+        x !== to.x ||
+        y !== to.y
+    ) {
+
+        if (board[y][x]) {
+            return false;
+        }
+
+        x += stepX;
+        y += stepY;
+    }
+
+    return true;
+}
+
+
+/* =========================================================
+   斜めの途中に駒がないか
+========================================================= */
+
+function clearDiagonal(from, to) {
+
+    const stepX =
+        Math.sign(to.x - from.x);
+
+    const stepY =
+        Math.sign(to.y - from.y);
+
+    let x = from.x + stepX;
+    let y = from.y + stepY;
+
+    while (
+        x !== to.x ||
+        y !== to.y
+    ) {
+
+        if (board[y][x]) {
+            return false;
+        }
+
+        x += stepX;
+        y += stepY;
+    }
+
+    return true;
+}
+
+
+/* =========================================================
+   CSA文字列を盤面上で合法か確認
+========================================================= */
+
+function canPlayCSAMove(csa) {
+
+    if (
+        typeof csa !== "string" ||
+        csa.length < 7
+    ) {
+        return false;
+    }
+
+    const side = csa[0];
+
+    const from = csaToXY(
+        csa.substring(1, 3)
+    );
+
+    const to = csaToXY(
+        csa.substring(3, 5)
+    );
+
+    const piece = csa.substring(5, 7);
+
+    const moving =
+        board[from.y][from.x];
+
+    if (!moving) {
+        return false;
+    }
+
+    if (moving.side !== side) {
+        return false;
+    }
+
+    if (piece !== moving.piece) {
+
+        // 成り駒などは元駒として比較
+        if (
+            piece !== basePiece(moving.piece)
+        ) {
+            return false;
+        }
+    }
+
+    return isLegalMove(
+        from,
+        to,
+        side
+    );
+}
+
+
+/* =========================================================
+   問題データの検証
+=========================================================
+
+   stages.jsonには、
+
+   [
+       ["+", "+2726FU", "-3334FU"],
+       ["+", "+7776FU", "-3334FU"],
+       ...
+   ]
+
+   のようなデータが入っている。
+
+   ただし、このデータには
+   「その2手を指す前の局面」がない。
+
+   そのため初期盤から合法なものだけを採用する。
+
+========================================================= */
+
+function validateStage(stage) {
+
+    if (
+        !Array.isArray(stage) ||
+        stage.length < 3
+    ) {
+        return false;
+    }
+
+    const first =
+        stage[1];
+
+    const second =
+        stage[2];
+
+    if (
+        typeof first !== "string" ||
+        typeof second !== "string"
+    ) {
+        return false;
+    }
+
+    if (
+        first.length < 7 ||
+        second.length < 7
+    ) {
+        return false;
+    }
+
+
+    // 初期盤
+    board = createInitialBoard();
+
+
+    // 1手目
+    if (!canPlayCSAMove(first)) {
+        return false;
+    }
+
+    playCSAMoveForValidation(first);
+
+
+    // 2手目
+    if (!canPlayCSAMove(second)) {
+        return false;
+    }
+
+    return true;
+}
+
+
+/* =========================================================
+   検証用にCSA手を盤面へ反映
+========================================================= */
+
+function playCSAMoveForValidation(csa) {
+
+    const from =
+        csaToXY(
+            csa.substring(1, 3)
+        );
+
+    const to =
+        csaToXY(
+            csa.substring(3, 5)
+        );
+
+    const piece =
+        board[from.y][from.x];
+
+    board[to.y][to.x] = {
+        side: piece.side,
+        piece: piece.piece
+    };
+
+    board[from.y][from.x] = null;
+}
+
+
+/* =========================================================
+   stages.json読み込み
+========================================================= */
+
+async function loadStages() {
+
+    try {
+
+        statusElement.textContent =
+            "問題データを読み込んでいます……";
+
+
+        const response =
+            await fetch("stages.json");
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                "stages.json が見つかりません"
+            );
+        }
+
+
+        stages =
+            await response.json();
+
+
+        if (!Array.isArray(stages)) {
+
+            throw new Error(
+                "stages.json の形式が違います"
+            );
+        }
+
+
+        /*
+         * stages.jsonには
+         * 初期盤からは指せない手も大量に含まれている。
+         *
+         * そこで1問ずつ検証。
+         */
+        validStages = stages.filter(
+            stage => validateStage(stage)
+        );
+
+
+        if (validStages.length === 0) {
+
+            throw new Error(
+                "初期盤から合法な問題がありません"
+            );
+        }
+
+
+        console.log(
+            "全問題数:",
+            stages.length
+        );
+
+        console.log(
+            "使用可能な問題数:",
+            validStages.length
+        );
+
+
+        nextStage();
+
+    } catch (error) {
+
+        console.error(error);
+
+        statusElement.textContent =
+            "読み込みエラー";
+
+        messageElement.textContent =
+            error.message +
+            "。index.html と stages.json を同じフォルダに置いてください。";
+
+        messageElement.className = "bad";
+    }
+}
+
+
+/* =========================================================
+   新しい問題
+========================================================= */
+
+function nextStage() {
+
+    if (validStages.length === 0) {
+        return;
+    }
+
+
+    const randomIndex =
+        Math.floor(
+            Math.random() *
+            validStages.length
+        );
+
+
+    currentStage =
+        validStages[randomIndex];
+
+
+    startStage();
+}
+
+
+/* =========================================================
+   現在の問題を開始
+========================================================= */
+
+function startStage() {
+
+    board =
+        createInitialBoard();
+
+    currentStep = 0;
+
+    selected = null;
+
+    lastMove = null;
+
+
+    statusElement.textContent =
+        "AIの1手目を当てろ！";
+
+    messageElement.textContent =
+        "盤上の駒を選んでください。";
+
+    messageElement.className = "";
+
+
+    renderBoard();
+
+
+    console.log(
+        "今回の正解:",
+        currentStage
+    );
+}
+
+
+/* =========================================================
+   ボタン
+========================================================= */
+
+nextButton.addEventListener(
+    "click",
+    () => {
+
+        streak = 0;
+
+        streakElement.textContent =
+            "0";
+
+        nextStage();
+    }
+);
+
+
+resetButton.addEventListener(
+    "click",
+    () => {
+
+        streak = 0;
+
+        streakElement.textContent =
+            "0";
+
+        startStage();
+    }
+);
+
+
+/* =========================================================
+   スタート
+========================================================= */
+
+loadStages();
+
+</script>
+
+</body>
+</html>
 ```
