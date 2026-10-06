@@ -49,18 +49,26 @@
         kifuDatabase = await response.json();
         console.log(`ステージを ${kifuDatabase.length} 件読み込みました`);
 
-        // 読み込み成功後にゲーム開始
         next3MoveStage();
       } catch (error) {
         console.error('stages.json の読み込みに失敗しました:', error);
-        document.getElementById("status").innerText = "stages.json の読み込みに失敗しました（F12コンソールを確認してください）";
+        document.getElementById("status").innerText = "stages.json の読み込みに失敗しました";
       }
     }
 
-    // ページロード完了時に実行
     window.addEventListener('load', loadStages);
 
-    // 2. 次の3手ステージへ進む処理
+    // 2. 配列形式の手順を KifuForJS 用のテキストに変換する関数
+    function convertToKifString(moves) {
+      if (!Array.isArray(moves)) return "";
+      let kifText = "手数----指手----指札\n";
+      moves.forEach((move, index) => {
+        kifText += `${index + 1} ${move}\n`;
+      });
+      return kifText;
+    }
+
+    // 3. 次の3手ステージへ進む処理
     function next3MoveStage() {
       if (!kifuDatabase || kifuDatabase.length === 0) {
         console.warn("kifuDatabase が空です");
@@ -70,7 +78,7 @@
       currentStep = 0;
       lastMoveCount = 1;
 
-      // ランダムに1つのデータを選択
+      // ランダムに1つのデータ（3手分の手順配列）を選択
       const selectedStage = kifuDatabase[Math.floor(Math.random() * kifuDatabase.length)];
       currentRoute = selectedStage;
 
@@ -79,14 +87,20 @@
       document.getElementById("stage-title").innerText = `3手ステージ`;
       document.getElementById("status").innerHTML = "AIの3手を当てろ...！";
 
-      // 盤面の描画・初期化
-      document.getElementById("board").innerHTML = ""; // 以前の盤面をクリア
+      // 盤面表示用要素をクリア
+      document.getElementById("board").innerHTML = "";
 
-      KifuForJS.loadString("", "board").then(function(player) {
+      // 手順データを KIF 形式のテキストにして読み込ませる
+      const kifContent = convertToKifString(currentRoute);
+
+      KifuForJS.loadString(kifContent, "board").then(function(player) {
         console.log("KifuForJS の読み込み成功");
         kifuPlayer = player;
+
+        // 自由入力（盤面操作）を許可
         if (player.setFreeMode) player.setFreeMode(true);
 
+        // 手が指された時のイベント検知
         if (typeof player.onChange === "function") {
           player.onChange(() => checkMove());
         } else if (player.store && typeof player.store.subscribe === "function") {
@@ -98,7 +112,7 @@
       });
     }
 
-    // 3. 手順判定処理
+    // 4. 手順判定処理
     function checkMove() {
       if (!kifuPlayer || !kifuPlayer.store) return;
 
@@ -118,6 +132,7 @@
       console.log("指した手:", playedMove, "正解:", expectedMove);
 
       if (expectedMove && playedMove.includes(expectedMove)) {
+        // ---【正解】---
         currentStep++;
 
         if (currentStep >= currentRoute.length) {
@@ -132,21 +147,22 @@
           document.getElementById("status").innerHTML = `<span class='safe'>HIT ! (${currentStep}/${currentRoute.length} 手目クリア)</span>`;
         }
       } else {
+        // ---【不正解（即死）】---
         clearStreak = 0;
         document.getElementById("clear-count").innerText = `CLEAR STREAK: 0`;
         document.getElementById("status").innerHTML = "<span class='died'>YOU DIED !!</span>";
 
         setTimeout(() => {
           alert(`YOU DIED !!\n正解は「${expectedMove || 'なし'}」でした。\nリトライ！`);
+          // リトライ時は初期状態（0手目）へ戻す
           currentStep = 0;
           lastMoveCount = 1;
           document.getElementById("status").innerHTML = "AIの3手を当てろ...！";
-          
-          document.getElementById("board").innerHTML = "";
-          KifuForJS.loadString("", "board").then(p => {
-            kifuPlayer = p;
-            if (p.setFreeMode) p.setFreeMode(true);
-          });
+          if (kifuPlayer && typeof kifuPlayer.goto === "function") {
+            kifuPlayer.goto(0);
+          } else {
+            next3MoveStage();
+          }
         }, 50);
       }
     }
