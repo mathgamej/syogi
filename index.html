@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>将棋アプリ</title>
+</head>
+<body>
+
+  <!-- 盤面やボタンなどのHTML要素 -->
+
+  <script>
+    // 1. 棋譜データを保持する変数を用意
+    let kifuDatabase = [];
+
+    // 2. stages.json を読み込む処理
+    async function loadStages() {
+      try {
+        const response = await fetch('stages.json');
+        kifuDatabase = await response.json();
+        console.log(`ステージを ${kifuDatabase.length} 件読み込みました`);
+
+        // 読み込みが完了したらゲームをスタート
+        initGame();
+      } catch (error) {
+        console.error('stages.json の読み込みに失敗しました:', error);
+      }
+    }
+
+    // 3. ページ読み込み完了時に loadStages を呼び出す
+    window.addEventListener('DOMContentLoaded', loadStages);
+
+    // 4. ゲームの初期化・出題処理
+    function initGame() {
+      if (kifuDatabase.length === 0) return;
+
+      // ランダムに1つの棋譜データを取得
+      const randomIndex = Math.floor(Math.random() * kifuDatabase.length);
+      const currentStage = kifuDatabase[randomIndex];
+
+      console.log('出題データ:', currentStage);
+
+      // ここに既存の「盤面をセットアップする処理」や「1手目を動かす処理」を呼び出す
+    }
+  </script>
+</body>
+</html>
